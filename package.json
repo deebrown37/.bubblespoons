@@ -1,1 +1,15 @@
-{"name":"dtp37-dating-app","version":"0.1.0","private":true,"type":"module","engines":{"node":">=24.19.0 <25"},"scripts":{"start":"node --env-file-if-exists=.env server.mjs","demo":"node --env-file-if-exists=.env server.mjs --demo","test":"node --test test/*.test.mjs","check":"node --check server.mjs && node --check public/app.js"}}
+{
+  "name": "dtp37-dating-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "demo": "node --env-file-if-exists=.env server.mjs --demo",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check server.mjs && node --check workflows.mjs && node --check providers.mjs && node --check public/app.js && node --check public/spoon.js && node --check public/signup.mjs"
+  }
+}
