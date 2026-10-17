@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { signupErrors } from '../public/signup.mjs';
 import {readFileSync} from 'node:fs';
 // Exercise the browser controller with a DOM substitute and controlled API replies.
 // This validates session transitions; real-browser layout still needs device QA.
@@ -8,8 +9,8 @@ function client(){
  const nodes=new Map(),calls=[],cleared=[];
  const node=s=>{if(!nodes.has(s))nodes.set(s,{innerHTML:'',textContent:'',open:false,classList:{add(){},remove(){}},addEventListener(){},close(){this.open=false;},showModal(){this.open=true;}});return nodes.get(s);};
  let reply={status:401,body:{error:'Please sign in.'}};
- const context=vm.createContext({document:{querySelector:node,querySelectorAll:()=>[]},fetch:async path=>{calls.push(path);return {ok:reply.status<400,status:reply.status,json:async()=>reply.body};},setTimeout:()=>1,clearTimeout(){},setInterval:()=>7,clearInterval:id=>cleared.push(id),URLSearchParams,console});
- const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').replace(/start\(\);\s*$/,'');
+ const context=vm.createContext({document:{querySelector:node,querySelectorAll:()=>[]},fetch:async path=>{calls.push(path);return {ok:reply.status<400,status:reply.status,json:async()=>reply.body};},setTimeout:()=>1,clearTimeout(){},setInterval:()=>7,clearInterval:id=>cleared.push(id),URLSearchParams,console,signupErrors});
+ const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').replace(/^import[^\n]+\n/,'').replace(/start\(\);\s*$/,'');
  vm.runInContext(source,context);
  return {node,calls,cleared,run:code=>vm.runInContext(code,context),reply:(status,body={})=>{reply={status,body};}};
 }
