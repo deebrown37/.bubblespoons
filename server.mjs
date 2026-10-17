@@ -5,12 +5,14 @@ import { promisify } from 'node:util';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { signupErrors } from './public/signup.mjs';
 const scrypt=promisify(scryptCallback), root=dirname(fileURLToPath(import.meta.url));
 const now=()=>Date.now(), id=()=>randomBytes(16).toString('hex'), digest=s=>createHash('sha256').update(s).digest('hex');
 export function ageOf(dob, date=new Date()) {const d=new Date(dob+'T00:00:00Z');if(!/^\d{4}-\d{2}-\d{2}$/.test(dob)||Number.isNaN(+d)||d.toISOString().slice(0,10)!==dob)return -1;let a=date.getUTCFullYear()-d.getUTCFullYear();if(date.getUTCMonth()<d.getUTCMonth()||(date.getUTCMonth()===d.getUTCMonth()&&date.getUTCDate()<d.getUTCDate()))a--;return a;}
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const text=(v,max,min=0)=>{if(typeof v!=='string'||v.trim().length<min||v.trim().length>max)fail(400,`Enter between ${min} and ${max} characters.`);return v.trim();};
 const emailOf=v=>{const e=text(v,254,3).toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))fail(400,'Enter a valid email.');return e;};
+const passwordInput=v=>{if(typeof v!=='string'||v.length<1||v.length>128)fail(400,'Enter your password.');return v;};
 async function hashPassword(password,salt=randomBytes(16).toString('hex')){return `${salt}:${Buffer.from(await scrypt(password,salt,64)).toString('hex')}`;}
 async function passwordOK(password,stored){const [salt,hash]=stored.split(':');return timingSafeEqual(Buffer.from(hash,'hex'),Buffer.from((await hashPassword(password,salt)).split(':')[1],'hex'));}
 export async function createApp({dbPath=':memory:',origin='http://127.0.0.1:3000',adminEmail='',production=false,demo=false,rateLimit=true}={}){
@@ -27,12 +29,15 @@ export async function createApp({dbPath=':memory:',origin='http://127.0.0.1:3000
  CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY,reporter TEXT REFERENCES users(id) ON DELETE SET NULL,target TEXT REFERENCES users(id) ON DELETE SET NULL,reason TEXT NOT NULL,details TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open',created INTEGER NOT NULL,resolution TEXT NOT NULL DEFAULT '');
  CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,actor TEXT REFERENCES users(id) ON DELETE SET NULL,action TEXT NOT NULL,target TEXT,created INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS message_match_time ON messages(match_id,created);`);
+ // Additive migration preserves accounts created before Spoon signup was added.
+ const columns=new Set(db.prepare('PRAGMA table_info(users)').all().map(c=>c.name));
+ if(!columns.has('spoon_intent'))db.exec("ALTER TABLE users ADD COLUMN spoon_intent TEXT NOT NULL DEFAULT ''");
  const run=(q,...a)=>db.prepare(q).run(...a),get=(q,...a)=>db.prepare(q).get(...a),all=(q,...a)=>db.prepare(q).all(...a);
  const tx=fn=>{db.exec('BEGIN');try{const r=fn();db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}};
  const blocked=(a,b)=>!!get('SELECT 1 FROM blocks WHERE (actor=? AND target=?) OR (actor=? AND target=?)',a,b,b,a);
  const isAdmin=u=>!!adminEmail&&u.email===adminEmail.toLowerCase();
  const pub=u=>({id:u.id,name:u.name,age:ageOf(u.dob),city:u.city,bio:u.bio,interests:u.interests.split(',').filter(Boolean),intent:u.intent,photo:get("SELECT id FROM photos WHERE user_id=? AND status='approved'",u.id)?.id||null});
- const own=u=>({...pub(u),email:u.email,dob:u.dob,paused:!!u.paused,admin:isAdmin(u),photoStatus:get('SELECT status FROM photos WHERE user_id=?',u.id)?.status||null,ownPhoto:get('SELECT id FROM photos WHERE user_id=?',u.id)?.id||null});
+ const own=u=>({...pub(u),email:u.email,dob:u.dob,spoonIntent:u.spoon_intent,paused:!!u.paused,admin:isAdmin(u),photoStatus:get('SELECT status FROM photos WHERE user_id=?',u.id)?.status||null,ownPhoto:get('SELECT id FROM photos WHERE user_id=?',u.id)?.id||null});
  const sessionCookie=(token,expire=false)=>`dtp_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${expire?0:604800}${production?'; Secure':''}`;
  const limits=new Map();let requests=0;
  const limit=(key,max)=>{if(!rateLimit)return;const t=now();if(++requests%100===0)for(const [k,v]of limits)if(v.until<t)limits.delete(k);const entry=limits.get(key)||{until:t+900000,count:0};if(entry.until<t){entry.count=0;entry.until=t+900000;}if(++entry.count>max)fail(429,'Too many requests. Please try again later.');limits.set(key,entry);};
@@ -46,7 +51,7 @@ export async function createApp({dbPath=':memory:',origin='http://127.0.0.1:3000
   run("INSERT OR IGNORE INTO matches VALUES('demo-match','riley','you',?)",now());
   run("INSERT OR IGNORE INTO messages VALUES('demo-message','demo-match','riley',?,?)",'Hey! What is the best book you have read lately?',now());
  }
- const assets=new Map(['/','/app.js','/style.css','/manifest.webmanifest','/icon.svg'].map(path=>[path,readFileSync(resolve(root,'public',path==='/'?'index.html':path.slice(1)))]));
+ const assets=new Map(['/','/app.js','/signup.mjs','/style.css','/manifest.webmanifest','/icon.svg'].map(path=>[path,readFileSync(resolve(root,'public',path==='/'?'index.html':path.slice(1)))]));
  const server=http.createServer(async(req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Frame-Options','DENY');
   res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
@@ -54,16 +59,18 @@ export async function createApp({dbPath=':memory:',origin='http://127.0.0.1:3000
   const json=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
   try{
    const url=new URL(req.url,origin),path=url.pathname,method=req.method;
-   if(!path.startsWith('/api/')){if(method!=='GET')fail(405,'Method not allowed.');const a=assets.get(path);if(!a)fail(404,'Not found.');res.writeHead(200,{'Content-Type':path.endsWith('.js')?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.svg')?'image/svg+xml':path.endsWith('webmanifest')?'application/manifest+json':'text/html','Cache-Control':'no-cache'});return res.end(a);}
+   if(!path.startsWith('/api/')){if(method!=='GET')fail(405,'Method not allowed.');const a=assets.get(path);if(!a)fail(404,'Not found.');res.writeHead(200,{'Content-Type':/\.m?js$/.test(path)?'text/javascript':path.endsWith('.css')?'text/css':path.endsWith('.svg')?'image/svg+xml':path.endsWith('webmanifest')?'application/manifest+json':'text/html','Cache-Control':'no-cache'});return res.end(a);}
    const write=!['GET','HEAD'].includes(method);
    if(write){if(req.headers.origin!==origin)fail(403,'Request origin rejected.');if(!req.headers['content-type']?.startsWith('application/json'))fail(415,'JSON required.');limit(req.socket.remoteAddress+':write',300);}
    let body={};if(write){let length=0,chunks=[];for await(const c of req){length+=c.length;if(length>3000000)fail(413,'Upload too large.');chunks.push(c);}try{body=JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{fail(400,'Invalid JSON.');}if(!body||Array.isArray(body)||typeof body!=='object')fail(400,'JSON object required.');}
    if(path==='/api/config'&&method==='GET')return json(200,{demo,brand:'DTP37 Connect'});
    if(['/api/register','/api/login'].includes(path)&&method==='POST'){
-    limit(req.socket.remoteAddress+':auth',30);const email=emailOf(body.email),password=text(body.password,128,12);let u;
+    limit(req.socket.remoteAddress+':auth',30);
+    if(path==='/api/register'){const errors=signupErrors(body);if(Object.keys(errors).length)return json(400,{error:Object.values(errors).join(' '),fields:errors});}
+    const email=emailOf(body.email),password=passwordInput(body.password);let u;
     if(path==='/api/register'){
-     if(body.consent!==true)fail(400,'Accept the community rules and privacy notice.');const dob=text(body.dob,10,10),age=ageOf(dob);if(age<18||age>120)fail(400,'This service is for adults 18 and over.');const name=text(body.name,40,2);const hash=await hashPassword(password);
-     if(get('SELECT id FROM users WHERE email=?',email))fail(409,'This email cannot be registered. Try signing in.');const uid=id();run('INSERT INTO users(id,email,password,dob,name,consent_at) VALUES(?,?,?,?,?,?)',uid,email,hash,dob,name,now());u=get('SELECT * FROM users WHERE id=?',uid);
+     const dob=body.dob,name=text(body.name,40,2),spoonIntent=body.spoonIntent;const hash=await hashPassword(password);
+     if(get('SELECT id FROM users WHERE email=?',email))fail(409,'This email cannot be registered. Try signing in.');const uid=id();run('INSERT INTO users(id,email,password,dob,name,spoon_intent,consent_at) VALUES(?,?,?,?,?,?,?)',uid,email,hash,dob,name,spoonIntent,now());u=get('SELECT * FROM users WHERE id=?',uid);
     }else {u=get('SELECT * FROM users WHERE email=?',email);const valid=await passwordOK(password,u?.password||dummyHash);if(!u||!valid)fail(401,'Email or password is incorrect.');if(u.suspended)fail(403,'This account is suspended.');}
     const token=randomBytes(32).toString('hex');run('DELETE FROM sessions WHERE expires<?',now());run('INSERT INTO sessions VALUES(?,?,?)',digest(token),u.id,now()+604800000);res.setHeader('Set-Cookie',sessionCookie(token));return json(200,own(u));
    }
@@ -78,8 +85,8 @@ export async function createApp({dbPath=':memory:',origin='http://127.0.0.1:3000
     run('UPDATE users SET name=?,city=?,bio=?,interests=?,intent=?,paused=? WHERE id=?',name,city,bio,interests,intent,Number(body.paused),u.id);return json(200,own(get('SELECT * FROM users WHERE id=?',u.id)));
    }
    if(path==='/api/discover'&&method==='GET'){
-    const min=Number(url.searchParams.get('min')||18),max=Number(url.searchParams.get('max')||100),city=text(url.searchParams.get('city')||'',60),intent=text(url.searchParams.get('intent')||'',50);
-    if(!Number.isInteger(min)||!Number.isInteger(max)||min<18||max>120||min>max)fail(400,'Choose valid adult age filters.');
+    const min=Number(url.searchParams.get('min')||21),max=Number(url.searchParams.get('max')||100),city=text(url.searchParams.get('city')||'',60),intent=text(url.searchParams.get('intent')||'',50);
+    if(!Number.isInteger(min)||!Number.isInteger(max)||min<21||max>120||min>max)fail(400,'Choose an age range of 21 or older.');
     const people=all(`SELECT u.* FROM users u WHERE u.id!=? AND u.paused=0 AND u.suspended=0 AND NOT EXISTS(SELECT 1 FROM reactions r WHERE r.actor=? AND r.target=u.id) AND NOT EXISTS(SELECT 1 FROM blocks b WHERE (b.actor=? AND b.target=u.id) OR (b.target=? AND b.actor=u.id)) ORDER BY u.name LIMIT 500`,u.id,u.id,u.id,u.id).filter(x=>ageOf(x.dob)>=min&&ageOf(x.dob)<=max&&(!city||x.city.toLowerCase().includes(city.toLowerCase()))&&(!intent||x.intent===intent)).slice(0,100).map(pub);return json(200,people);
    }
    if(path==='/api/reactions'&&method==='POST'){
@@ -111,7 +118,7 @@ export async function createApp({dbPath=':memory:',origin='http://127.0.0.1:3000
     }
    }
    if(path==='/api/account'&&method==='DELETE'){
-    if(!await passwordOK(text(body.password,128,12),u.password))fail(401,'Password is incorrect.');tx(()=>{run('UPDATE reports SET details=? WHERE reporter=? OR target=?','Removed on account deletion',u.id,u.id);run('DELETE FROM users WHERE id=?',u.id);});res.setHeader('Set-Cookie',sessionCookie('',true));return json(200,{ok:true});
+    if(!await passwordOK(passwordInput(body.password),u.password))fail(401,'Password is incorrect.');tx(()=>{run('UPDATE reports SET details=? WHERE reporter=? OR target=?','Removed on account deletion',u.id,u.id);run('DELETE FROM users WHERE id=?',u.id);});res.setHeader('Set-Cookie',sessionCookie('',true));return json(200,{ok:true});
    }
    fail(404,'Not found.');
   }catch(e){if(!res.headersSent)json(e.status||500,{error:e.status?e.message:'Something went wrong. Please try again.'});else res.end();if(!e.status)console.error('Request failed:',e.code||e.name);}
