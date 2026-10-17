@@ -31,7 +31,7 @@ Optional configuration: copy `.env.example` to `.env`. Set `ADMIN_EMAIL` to an a
 - Block prevents discovery and further messaging in both directions and deletes the shared conversation.
 - Report submission, moderator report resolution, account suspension and an action audit log.
 - Photo upload with a size limit and JPEG/PNG/WebP signature checks. Photos are private until moderator approval; images require authenticated access.
-- Password-confirmed account deletion with cascading removal of account data and anonymization of retained safety reports.
+- Typed DELETE and password-confirmed account deletion with cascading removal of account data and anonymization of retained safety reports.
 - Development privacy/community/deletion notices, safety guidance, keyboard labels and responsive layouts.
 - GitHub Actions tests, Docker packaging, example configuration and deployment notes.
 
@@ -58,13 +58,13 @@ git remote add origin https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY.git
 git push -u origin main
 ```
 
-Replace the repository URL with the actual destination. GitHub Pages cannot run this backend. Use a Node hosting service with a persistent disk or a container host. See `DEPLOYMENT.md` before public hosting. The current delivery is local; it has not been uploaded until a destination repository is selected and the push succeeds.
+Replace the repository URL with the actual destination. GitHub Pages cannot run this backend. Use a Node hosting service with a persistent disk or a container host. See `DEPLOYMENT.md` before public hosting. The source repository is https://github.com/deebrown37/.bubblespoons. A successful Actions check validates source tests; it does not host or publish the app.
 
 ## Architecture
 
 `server.mjs` implements HTTP APIs, authorization, prepared SQL, transactional writes, static-file allowlisting and moderation. `public/` contains the interface, local illustrations, web manifest and shared signup validator. The database has users, sessions, reactions, matches, messages, blocks, photos, reports and moderation audit tables. There are no browser-stored passwords or session tokens.
 
-The browser uses only same-origin APIs; there are no external fonts, analytics, maps, stock images, AI calls, or payment APIs. No API keys are required to run locally. This intentionally avoids pretending that unconfigured third-party services work.
+The browser uses only same-origin APIs; there are no external fonts, analytics, maps, stock images, AI calls, or direct browser payment API calls. Configured Stripe and Checkr requests run on the server. No API keys are required to run locally. This intentionally avoids pretending that unconfigured third-party services work.
 
 ## Development boundaries
 
@@ -73,6 +73,14 @@ This app still needs verified email and password recovery, production image deco
 Node references: [SQLite API](https://nodejs.org/docs/latest-v24.x/api/sqlite.html), [Crypto API](https://nodejs.org/docs/latest-v24.x/api/crypto.html).
 
 
-## Spoon signup steps awaiting definition
+## Spoon workflows
 
-The selected Spoon intent is saved privately on the account as `spoon_intent` and returned to the owner as `spoonIntent`. This is separate from the relationship preference `intent`. Existing databases receive an additive column migration; existing accounts have no automatically assigned Spoon intent. The business actions called Spoon sign-up and mark have not been defined or implemented. No payment, verification badge, role privilege, external call or completed onboarding mark is inferred from choosing an intent.
+The **Spoon account** screen implements the supplied workflow list: a server-validated age screen and persisted eligibility flag, encrypted front/back ID uploads with one completion reward per side, dated risk agreement/withdrawal, disclosure signing, notification permission choices, screening fees and invitations, chat requests, blocking/unblocking, video sharing, two-party private consent, questionnaires, verified purchases, points and store rewards, support, and account deletion.
+
+Buyers can open **Buy hours** on a Be a spoon profile. The server requires the member's manual eligibility and Stripe account readiness, and rechecks roles, age, blocks and Stripe account status before checkout. These bookings are for lawful non-sexual companionship only. Choosing a Spoon role never automatically grants eligibility or proves identity.
+
+The browser cannot set paid status, award purchase points, mark screening complete or grant administrative access. Stripe sessions are fetched and matched to the saved owner, order, currency and amount. Purchase references and rewards are unique; replayed returns/events cannot credit twice. Signed Stripe webhooks also retrieve the event from Stripe. Price and reward amounts are stored with the order.
+
+Existing accounts must reconfirm their saved date of birth to obtain the new age flag. Changing an existing account's birth date requires a support process. An anonymous age check lasts 30 minutes and is consumed by signup. Self-declared birth dates are not verified age assurance.
+
+See [WORKFLOWS.md](WORKFLOWS.md) for setup, workflow routes, provider requirements and remaining launch work. API keys, encrypted files and live member data must never be committed to GitHub.
