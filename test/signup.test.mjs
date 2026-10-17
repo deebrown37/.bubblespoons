@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {signupErrors} from '../public/signup.mjs';
+const valid={name:'Taylor',email:'taylor@example.test',dob:'2005-10-17',spoonIntent:'Be a spoon',password:'ThirteenChars!7',consent:true};
+const date=new Date('2026-10-17T00:00:00Z');
+test('signup admits exactly 21 and rejects the day before the twenty-first birthday',()=>{assert.deepEqual(signupErrors(valid,date),{});assert.ok(signupErrors({...valid,dob:'2005-10-18'},date).dob);assert.ok(signupErrors({...valid,dob:'2027-01-01'},date).dob);});
+test('signup rejects invalid and empty birth dates and handles leap birthdays',()=>{for(const dob of ['',null,'2001-02-29','2000-02-30','not-a-date'])assert.ok(signupErrors({...valid,dob},date).dob);assert.ok(signupErrors({...valid,dob:'2004-02-29'},new Date('2025-02-28T23:59:59Z')).dob);assert.equal(signupErrors({...valid,dob:'2004-02-29'},new Date('2025-03-01T00:00:00Z')).dob,undefined);});
+test('signup requires all current mandatory inputs and an allowed Spoon intent',()=>{for(const field of ['name','email','dob','spoonIntent','password'])assert.ok(Object.keys(signupErrors({...valid,[field]:''},date)).length);assert.ok(signupErrors({...valid,consent:false},date).consent);for(const spoonIntent of ['Be a spoon','Buy a spoon'])assert.equal(signupErrors({...valid,spoonIntent},date).spoonIntent,undefined);});
+test('password boundary is 13 characters with a digit and punctuation; spaces are not special characters',()=>{assert.equal(signupErrors({...valid,password:'abcdefghij1!x'},date).password,undefined);assert.equal(signupErrors({...valid,password:'          1 !'},date).password,undefined);for(const password of ['abcdefghij1!','abcdefghijk!!','abcdefghijk12','abcdefghij1  ',null])assert.ok(signupErrors({...valid,password},date).password);});
