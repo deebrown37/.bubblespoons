@@ -24,7 +24,7 @@ Optional configuration: copy `.env.example` to `.env`. Set `ADMIN_EMAIL` to an a
 
 ## Included
 
-- Adults-only date-of-birth check, email/password registration, login and logout.
+- Signup requires age 21+, name, email, date of birth, Spoon intent (Be a spoon / Buy a spoon), consent, and a 13–128 character password containing a digit and special character. Login remains compatible with existing accounts.
 - Async scrypt password hashing with individual salts; random sessions stored as hashes; HttpOnly SameSite cookies; Secure cookies in production.
 - Profile editor, intent, interests, city, pause discovery, age/city/intent filters.
 - Likes and passes, reciprocal matching, private text messages only between matched members. Chat polls every five seconds while open; this is not WebSocket chat.
@@ -62,7 +62,7 @@ Replace the repository URL with the actual destination. GitHub Pages cannot run 
 
 ## Architecture
 
-`server.mjs` implements HTTP APIs, authorization, prepared SQL, transactional writes, static-file allowlisting and moderation. `public/` contains the interface, local illustrations and web manifest. The database has users, sessions, reactions, matches, messages, blocks, photos, reports and moderation audit tables. There are no browser-stored passwords or session tokens.
+`server.mjs` implements HTTP APIs, authorization, prepared SQL, transactional writes, static-file allowlisting and moderation. `public/` contains the interface, local illustrations, web manifest and shared signup validator. The database has users, sessions, reactions, matches, messages, blocks, photos, reports and moderation audit tables. There are no browser-stored passwords or session tokens.
 
 The browser uses only same-origin APIs; there are no external fonts, analytics, maps, stock images, AI calls, or payment APIs. No API keys are required to run locally. This intentionally avoids pretending that unconfigured third-party services work.
 
@@ -71,3 +71,8 @@ The browser uses only same-origin APIs; there are no external fonts, analytics, 
 This app still needs verified email and password recovery, production image decoding/re-encoding and metadata removal, stronger abuse defenses, a staffed moderation program, approved legal policies and launch review. Date-of-birth self-declaration is not identity or robust age assurance. Read `DEPLOYMENT.md` for the full handover checklist. Do not invite real dating users before those requirements are addressed.
 
 Node references: [SQLite API](https://nodejs.org/docs/latest-v24.x/api/sqlite.html), [Crypto API](https://nodejs.org/docs/latest-v24.x/api/crypto.html).
+
+
+## Spoon signup steps awaiting definition
+
+The selected Spoon intent is saved privately on the account as `spoon_intent` and returned to the owner as `spoonIntent`. This is separate from the relationship preference `intent`. Existing databases receive an additive column migration; existing accounts have no automatically assigned Spoon intent. The business actions called Spoon sign-up and mark have not been defined or implemented. No payment, verification badge, role privilege, external call or completed onboarding mark is inferred from choosing an intent.
